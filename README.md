@@ -2,14 +2,17 @@
 
 **Multi-language IRC bot powered by Grok AI** — Python, Tcl & x86_64 Assembly
 
-Connect to Undernet IRC network, ask questions via `!grok`, and get AI-powered responses directly in your channels.
+Connect to the Undernet IRC network, ask questions using `!<BotNick>`, and get AI-powered responses directly in your channels. Supports role-based admin system, per-channel customization, multiple API modes, and a local HTTP bridge for Tcl/Eggdrop integration.
+
+---
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
 │                 IRC (Undernet)               │
-│            us.undernet.org:6667              │
+│      budapest.hu.eu.undernet.org:6667        │
+│   (failover: bucharest.ro.eu.undernet.org)   │
 └──────────┬──────────────┬───────────────────┘
            │              │
     ┌──────▼──────┐ ┌─────▼──────┐
@@ -23,8 +26,7 @@ Connect to Undernet IRC network, ask questions via `!grok`, and get AI-powered r
            │              │
     ┌──────▼──────────────▼──────┐
     │      Grok API Client       │
-    │   (customizable modes,     │
-    │    headers, contexts)      │
+    │   (modes, headers, context)│
     └──────────────┬─────────────┘
                    │
            ┌───────▼───────┐
@@ -39,13 +41,17 @@ Connect to Undernet IRC network, ask questions via `!grok`, and get AI-powered r
     └──────────────────────┘
 ```
 
+---
+
 ## Quick Start
 
 ### 1. Clone & Setup
 
 ```bash
-git clone https://github.com/iamre00t00/groc-IRC.git
+git clone https://github.com/daxprime/groc-IRC.git
 cd groc-IRC
+python3 -m venv venv
+source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -53,182 +59,467 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env with your settings:
-#   GROK_API_KEY=your-xai-api-key
-#   IRC_NICKNAME=YourBot
-#   SUPER_ADMIN_HOSTMASK=yournick!*@your.host
-#   SUPER_ADMIN_PASSWORD=secretpassword
+nano .env   # or your editor of choice
+```
+
+Minimum required settings in `.env`:
+```ini
+GROK_API_KEY=xai-your-api-key-here
+IRC_NICKNAME=YourBotNick
+IRC_SERVER=budapest.hu.eu.undernet.org
+IRC_CHANNELS=#yourchannel
+SUPER_ADMIN_HOSTMASK=yournick!*@your.host.com
+SUPER_ADMIN_PASSWORD=changeme
 ```
 
 ### 3. Run
 
 ```bash
 # Python bot (recommended)
-python -m python.main
+python3 -m python.main
+
+# Or with venv explicitly
+/path/to/venv/bin/python3 -m python.main
 
 # Tcl standalone bot
 tclsh tcl/grocbot.tcl
 
-# Eggdrop (add to eggdrop.conf)
+# Eggdrop — add to eggdrop.conf:
 # source /path/to/groc-IRC/tcl/grocbot_eggdrop.tcl
 ```
 
-### 4. Build Assembly (optional)
+### 4. Build Assembly (optional performance module)
 
 ```bash
 cd assembly
-chmod +x build.sh
 ./build.sh
-# Produces grocbot_asm.so - auto-detected by Python bot
+# Produces grocbot_asm.so — auto-loaded by the Python bot if present
 ```
+
+---
 
 ## Commands
 
+> **Note:** The bot command prefix is `!<BotNick>` — it dynamically uses whatever nickname the bot currently has (including trailing `_` if the nick is taken).
+> Example: if the bot connects as `MosIonGrok`, the command is `!MosIonGrok hello`.
+
 ### User Commands
+
 | Command | Description |
 |---------|-------------|
-| `!grok <question>` | Ask Grok AI a question |
+| `!<BotNick> <question>` | Ask Grok AI a question |
+| `!<BotNick>` | Show usage hint |
 | `!help` | Show help message |
-| `!status` | Show bot status (model, mode, temp) |
-| `!modes` | List available API modes |
+| `!status` | Show current bot status (model, mode, temperature) |
+| `!modes` | List available API modes and current channel mode |
 
-### Admin Commands (Managers & Super Admin)
+### Admin Login
+
+All admin commands require authentication first. The bot checks IRC hostmask automatically — if your hostmask matches the configured pattern you may login with just your password:
+
+```
+!admin login <password>
+```
+
+Session lasts **1 hour** by default (configurable via `admin.session_timeout` in `settings.json`).
+
+---
+
+### Manager Commands
+
+> Requires `MANAGER` role or higher (login first).
+
 | Command | Description |
 |---------|-------------|
-| `!admin login [password]` | Authenticate |
-| `!admin setheader <key> <value>` | Set custom API header |
-| `!admin removeheader <key>` | Remove API header |
-| `!admin listheaders` | List current headers |
-| `!admin setcontext <text>` | Set channel system prompt |
-| `!admin clearcontext` | Clear channel context |
-| `!admin setmode <mode>` | Set channel API mode |
-| `!admin setmodel <model>` | Change Grok model |
-| `!admin settemp <0.0-2.0>` | Set temperature |
-| `!admin setmaxtokens <n>` | Set max response tokens |
-| `!admin clearhistory [channel]` | Clear conversation history |
-| `!admin join <#channel>` | Join a channel |
-| `!admin part <#channel>` | Leave a channel |
+| `!admin login <password>` | Authenticate and start a session |
+| `!admin setheader <key> <value>` | Add/update a custom HTTP header for API requests |
+| `!admin removeheader <key>` | Remove a custom API header |
+| `!admin listheaders` | List all active custom headers |
+| `!admin setcontext <text>` | Set a channel-specific system prompt override |
+| `!admin clearcontext` | Remove the channel system prompt override |
+| `!admin setmode <mode>` | Switch the channel API mode (see modes below) |
+| `!admin setmodel <model>` | Change the Grok model (e.g. `grok-3`, `grok-3-mini`) |
+| `!admin settemp <0.0–2.0>` | Set response temperature (creativity vs precision) |
+| `!admin setmaxtokens <n>` | Set maximum tokens per response |
+| `!admin clearhistory [#channel]` | Clear conversation history for a channel |
+| `!admin join <#channel>` | Make the bot join a channel |
+| `!admin part <#channel>` | Make the bot leave a channel |
+| `!admin chpasswd <oldpass> <newpass>` | Change your own manager password |
 
-### Super Admin Only
+---
+
+### Super Admin Commands
+
+> Requires `SUPER_ADMIN` role. All manager commands are also available.
+
 | Command | Description |
 |---------|-------------|
-| `!admin addmanager <nick> <hostmask> [password]` | Add manager |
-| `!admin removemanager <nick>` | Remove manager |
-| `!admin listmanagers` | List all managers |
-| `!admin block <hostmask>` | Block a user |
-| `!admin unblock <hostmask>` | Unblock a user |
-| `!admin shutdown` | Shutdown the bot |
+| `!admin addmanager <nick> <hostmask> [password]` | Register a new manager |
+| `!admin removemanager <nick>` | Remove a manager |
+| `!admin listmanagers` | List all registered managers with their roles and hostmasks |
+| `!admin chpasswd <nick\|__super__> <newpass>` | Reset any user's password (no old password needed) |
+| `!admin block <hostmask>` | Block a hostmask pattern from using the bot |
+| `!admin unblock <hostmask>` | Unblock a hostmask pattern |
+| `!admin shutdown` | Gracefully disconnect and shut down the bot |
+
+---
+
+## Admin & Manager System
+
+### Roles
+
+| Role | Level | Capabilities |
+|------|-------|-------------|
+| `USER` | 0 | Ask questions, view status |
+| `MANAGER` | 1 | All user commands + API tuning, header/context/mode management |
+| `SUPER_ADMIN` | 2 | All manager commands + user management, block/unblock, shutdown |
+
+### Registering a Manager (in IRC, as super admin)
+
+```
+!admin login yourpassword
+!admin addmanager Dave *!dave@some.host.com davepass123
+!admin addmanager Alice *!*@*.trusted-isp.net          ← hostmask-only, no password
+!admin listmanagers
+!admin removemanager Dave
+```
+
+- Hostmasks use IRC wildcards: `*` matches anything, `?` matches one character
+- Example patterns: `Nick!*@*`, `*!user@specific.host`, `*!*@*.myisp.net`
+
+### Logging In (as a manager, in IRC)
+
+```
+!admin login yourpassword
+```
+
+### Changing Passwords
+
+```
+# As a manager — change your own password (requires current password):
+!admin chpasswd oldpassword newpassword
+
+# As super admin — reset any manager's password:
+!admin chpasswd Dave newpassword
+
+# As super admin — change the super admin password (runtime only*):
+!admin chpasswd __super__ newpassword
+```
+
+> ⚠️ Changing `__super__` via IRC is temporary — the bot re-reads `SUPER_ADMIN_PASSWORD` from `.env` on next restart. To make it permanent, update `.env`:
+> ```ini
+> SUPER_ADMIN_PASSWORD=yournewpassword
+> ```
+
+---
+
+## API Modes
+
+Modes are pre-configured personalities with different system prompts. Set per-channel or globally.
+
+| Mode | Temperature | Description |
+|------|-------------|-------------|
+| `default` | 0.7 | Balanced helpful assistant |
+| `creative` | 1.2 | Expressive and imaginative responses |
+| `precise` | 0.2 | Factual, no-nonsense, shorter answers (512 tokens) |
+| `code` | 0.3 | Programming-focused, optimized for code snippets (1500 tokens) |
+
+```
+!admin setmode creative          # switch current channel to creative mode
+!admin setmode code              # switch to code mode
+!modes                           # list modes and show current channel mode
+```
+
+### Adding Custom Modes
+
+Edit `config/settings.json` under `grok_api.custom_modes`:
+
+```json
+"grok_api": {
+  "custom_modes": {
+    "pirate": {
+      "system_prompt": "You are a helpful pirate. Respond in pirate speak, keep it short for IRC.",
+      "temperature": 1.0,
+      "max_tokens": 800
+    },
+    "eli5": {
+      "system_prompt": "Explain everything like the user is 5 years old. Be very simple and brief.",
+      "temperature": 0.8,
+      "max_tokens": 600
+    }
+  }
+}
+```
+
+Restart the bot to load new modes.
+
+---
 
 ## API Customization
 
-### Modes
-
-Pre-configured in `config/settings.json`:
-
-- **default** — Balanced responses (temp 0.7)
-- **creative** — More creative output (temp 1.2)
-- **precise** — Factual, focused (temp 0.3)
-- **code** — Code generation optimized (temp 0.2)
-
-Set per-channel: `!admin setmode creative`
-
 ### Custom Headers
 
-Add any HTTP header to API requests:
+Add arbitrary HTTP headers to every Grok API request:
+
 ```
-!admin setheader X-Custom-Header my-value
+!admin setheader X-Custom-Tag myapp
+!admin setheader Authorization-Extra extra-token
 !admin listheaders
-!admin removeheader X-Custom-Header
+!admin removeheader X-Custom-Tag
 ```
 
-### Context / System Prompts
+### Per-Channel System Prompts (Context)
 
-Override the system prompt per-channel:
+Override the system prompt for a specific channel:
+
 ```
 !admin setcontext You are an expert Python developer. Only answer coding questions.
+!admin setcontext You are a sarcastic assistant who answers in exactly one sentence.
 !admin clearcontext
 ```
 
-### Model & Parameters
+Context is combined with the active mode's system prompt.
+
+### Model & Parameter Tuning
 
 ```
-!admin setmodel grok-3
-!admin settemp 0.5
-!admin setmaxtokens 2048
+!admin setmodel grok-3           # switch model
+!admin setmodel grok-3-mini      # faster/cheaper model
+!admin settemp 0.9               # 0.0 = deterministic, 2.0 = very random
+!admin setmaxtokens 2048         # max tokens per response
+!admin clearhistory              # reset conversation memory for current channel
+!admin clearhistory #otherchan   # reset for a specific channel
 ```
+
+---
+
+## Configuration Reference
+
+### Environment Variables (`.env`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GROK_API_KEY` | *(required)* | Your xAI API key |
+| `IRC_SERVER` | `budapest.hu.eu.undernet.org` | Primary IRC server |
+| `IRC_PORT` | `6667` | IRC server port |
+| `IRC_NICKNAME` | `GrocBot` | Bot nickname |
+| `IRC_CHANNELS` | `#grocbot` | Comma-separated channels to join on start |
+| `UNDERNET_USER` | — | Undernet X account username (for channel auth) |
+| `UNDERNET_PASS` | — | Undernet X account password |
+| `SUPER_ADMIN_HOSTMASK` | `*!*@*` | IRC hostmask pattern for super admin |
+| `SUPER_ADMIN_PASSWORD` | — | Super admin login password |
+| `BRIDGE_HOST` | `127.0.0.1` | HTTP bridge bind address |
+| `BRIDGE_PORT` | `5580` | HTTP bridge port (used by Tcl bot) |
+
+### `config/settings.json` — Key Sections
+
+#### `irc`
+
+```json
+{
+  "server": "budapest.hu.eu.undernet.org",
+  "servers": [
+    "budapest.hu.eu.undernet.org",
+    "bucharest.ro.eu.undernet.org"
+  ],
+  "port": 6667,
+  "ssl_port": 6697,
+  "use_ssl": false,
+  "nickname": "GrocBot",
+  "channels": ["#grocbot"],
+  "reconnect_delay": 30,
+  "max_reconnect_attempts": 10,
+  "message_throttle_seconds": 2,
+  "max_message_length": 400
+}
+```
+
+- `servers` — list cycled through on reconnect; add more Undernet servers here
+- `reconnect_delay` — seconds between reconnect attempts (multiplied each try, max 300s)
+- `message_throttle_seconds` — minimum delay between outgoing IRC messages (flood protection)
+
+#### `grok_api`
+
+```json
+{
+  "base_url": "https://api.x.ai/v1",
+  "model": "grok-3",
+  "max_tokens": 1024,
+  "temperature": 0.7,
+  "timeout": 30,
+  "default_system_prompt": "You are a helpful IRC assistant...",
+  "custom_headers": {},
+  "custom_modes": { ... }
+}
+```
+
+#### `security`
+
+```json
+{
+  "rate_limit_per_user": 10,
+  "rate_limit_window_seconds": 60,
+  "max_input_length": 500,
+  "max_context_messages": 10,
+  "sanitize_input": true,
+  "log_conversations": true
+}
+```
+
+- `rate_limit_per_user` — max requests per user per window
+- `max_context_messages` — how many past messages to send as conversation history
+- `sanitize_input` — strips IRC control chars and detects prompt injection attempts
+
+#### `admin`
+
+```json
+{
+  "session_timeout": 3600,
+  "require_hostmask_auth": true
+}
+```
+
+#### `logging`
+
+```json
+{
+  "level": "INFO",
+  "file": "logs/grocbot.log",
+  "max_size_mb": 10,
+  "backup_count": 5,
+  "log_to_console": true
+}
+```
+
+---
+
+## HTTP Bridge API
+
+The bridge server runs on `http://127.0.0.1:5580` and allows Tcl/external scripts to interact with the bot.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/status` | `GET` | Bot status, model, modes |
+| `/api/chat` | `POST` | Send a message to Grok |
+| `/api/mode` | `POST` | Change API mode |
+| `/api/header` | `POST` | Set a custom header |
+
+**Chat example:**
+```bash
+curl -X POST http://127.0.0.1:5580/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What is the capital of France?"}'
+```
+
+**Response:**
+```json
+{
+  "content": "Paris.",
+  "model": "grok-3",
+  "usage": { "total_tokens": 15 },
+  "latency_ms": 412.3
+}
+```
+
+---
 
 ## Security
 
-- **API Key Encryption** — Fernet (AES-256) encryption for stored secrets
-- **Password Hashing** — PBKDF2-HMAC-SHA256 with random salts
-- **Rate Limiting** — Per-user sliding window (configurable)
-- **Input Sanitization** — Strips control chars, detects prompt injection
-- **Hostmask Auth** — fnmatch pattern matching for admin verification
-- **Localhost Bridge** — HTTP bridge only accepts 127.0.0.1 connections
-- **Session Tokens** — Time-limited authentication tokens
+| Feature | Implementation |
+|---------|---------------|
+| API key encryption | Fernet (AES-256) for stored secrets |
+| Password hashing | PBKDF2-HMAC-SHA256, random salt per user |
+| Session tokens | `secrets.token_urlsafe(32)`, time-limited (1 hr) |
+| Rate limiting | Per-user sliding window, configurable |
+| Input sanitization | Strips IRC control chars (`\x00–\x1f`, `\x7f`), prompt injection detection |
+| Hostmask auth | `fnmatch` pattern matching against IRC hostmask |
+| Bridge isolation | HTTP bridge bound to `127.0.0.1` only |
+| Conversation privacy | History stored in-memory only, cleared on restart |
+
+---
+
+## Server Failover
+
+The bot cycles through the `servers` list on each reconnect attempt:
+
+```json
+"servers": [
+  "budapest.hu.eu.undernet.org",
+  "bucharest.ro.eu.undernet.org"
+]
+```
+
+Add any number of Undernet servers here. Other Undernet servers: `us.undernet.org`, `eu.undernet.org`, `irc.undernet.org`.
+
+---
+
+## Assembly Module
+
+The optional x86_64 NASM assembly module (`assembly/grocbot_asm.asm`) provides faster implementations of:
+
+- `fast_irc_parse` — IRC message tokenizer
+- `sanitize_buffer` — control character removal
+- `xor_encrypt` — simple XOR cipher for lightweight obfuscation
+- `hash_djb2` — fast DJB2 string hashing
+- `rate_check` — atomic rate limit counter
+
+The Python bot auto-detects `grocbot_asm.so` and falls back to pure Python if not present.
+
+```bash
+cd assembly && ./build.sh
+# Requires: nasm, gcc
+```
+
+---
 
 ## Project Structure
 
 ```
 groc-IRC/
 ├── python/
-│   ├── __init__.py
-│   ├── main.py              # Main orchestrator
+│   ├── main.py              # Main orchestrator (GrocIRCBot class)
 │   ├── core/
-│   │   ├── __init__.py
-│   │   └── irc_bot.py       # Async IRC client
+│   │   └── irc_bot.py       # Async IRC client, server cycling, reconnect
 │   ├── api/
-│   │   ├── __init__.py
-│   │   ├── grok_client.py   # Grok API client
-│   │   └── bridge_server.py # HTTP bridge for Tcl
+│   │   ├── grok_client.py   # Grok API client (modes, headers, history)
+│   │   └── bridge_server.py # HTTP bridge server (aiohttp, port 5580)
 │   ├── auth/
-│   │   ├── __init__.py
-│   │   └── admin.py         # Admin/Manager system
+│   │   └── admin.py         # Role-based access control (User/Manager/SuperAdmin)
 │   └── utils/
-│       ├── __init__.py
-│       ├── config.py         # Configuration manager
-│       ├── security.py       # Rate limiter, sanitizer, crypto
-│       └── asm_bridge.py     # Assembly ctypes bridge
+│       ├── config.py        # Config loader (JSON + env overrides)
+│       ├── security.py      # RateLimiter, InputSanitizer, SecureConfig, password utils
+│       └── asm_bridge.py    # ctypes bridge to assembly .so
 ├── tcl/
-│   ├── grocbot.tcl           # Standalone Tcl bot
-│   └── grocbot_eggdrop.tcl   # Eggdrop-compatible script
+│   ├── grocbot.tcl          # Standalone Tcl IRC bot
+│   └── grocbot_eggdrop.tcl  # Eggdrop-compatible Tcl script
 ├── assembly/
-│   ├── grocbot_asm.asm       # x86_64 NASM routines
-│   └── build.sh              # Build script
+│   ├── grocbot_asm.asm      # x86_64 NASM performance routines
+│   └── build.sh             # Builds grocbot_asm.so
 ├── config/
-│   └── settings.json         # Bot configuration
-├── .env.example              # Environment template
-├── .gitignore
+│   └── settings.json        # Full bot configuration
+├── .env                     # Your local secrets (never commit this)
+├── .env.example             # Template with all available variables
 ├── requirements.txt
 ├── LICENSE
 └── README.md
 ```
 
-## Configuration
-
-Edit `config/settings.json` for IRC settings, API modes, security parameters, and logging.
-
-Environment variables (`.env`) override config file settings:
-
-| Variable | Description |
-|----------|-------------|
-| `GROK_API_KEY` | Your xAI API key (required) |
-| `IRC_SERVER` | IRC server hostname |
-| `IRC_PORT` | IRC server port |
-| `IRC_NICKNAME` | Bot nickname |
-| `UNDERNET_USER` | Undernet X username |
-| `UNDERNET_PASS` | Undernet X password |
-| `SUPER_ADMIN_HOSTMASK` | Super admin hostmask pattern |
-| `SUPER_ADMIN_PASSWORD` | Super admin password |
+---
 
 ## Requirements
 
-- Python 3.8+
-- aiohttp >= 3.9.0
-- python-dotenv >= 1.0.0
-- cryptography >= 41.0.0
-- Tcl 8.6 (for Tcl bot)
-- NASM + GCC (for assembly, optional)
+- **Python** 3.8+
+- **aiohttp** ≥ 3.9.0
+- **python-dotenv** ≥ 1.0.0
+- **cryptography** ≥ 41.0.0
+- **Tcl** 8.6 *(for Tcl bot only)*
+- **NASM** + **GCC** *(for assembly module, optional)*
+
+```bash
+pip install -r requirements.txt
+```
+
+---
 
 ## License
 
@@ -236,4 +527,4 @@ MIT License — see [LICENSE](LICENSE)
 
 ## Author
 
-**iamre00t00** — [iamre00t00@gmail.com](mailto:iamre00t00@gmail.com)
+**daxprime / iamre00t00** — [iamre00t00@gmail.com](mailto:iamre00t00@gmail.com)

@@ -24,6 +24,7 @@ class AdminUser:
     hostmask_pattern: str
     role: Role
     password_hash: str = ""
+    password_salt: str = ""
     added_by: str = ""
     added_at: float = field(default_factory=time.time)
     last_seen: float = 0.0
@@ -60,7 +61,8 @@ class AdminManager:
                 nick="SuperAdmin",
                 hostmask_pattern=super_admin_hostmask,
                 role=Role.SUPER_ADMIN,
-                password_hash=hash_password(super_admin_password) if super_admin_password else "",
+                **({} if not super_admin_password else
+                   dict(zip(("password_hash","password_salt"), hash_password(super_admin_password)))),
                 added_by="SYSTEM"
             )
 
@@ -99,7 +101,7 @@ class AdminManager:
         if role == Role.USER:
             if password:
                 for user in self._users.values():
-                    if user.password_hash and verify_password(password, user.password_hash):
+                    if user.password_hash and verify_password(password, user.password_hash, user.password_salt):
                         if not user.is_blocked:
                             role = user.role
                             break
@@ -135,7 +137,8 @@ class AdminManager:
             return False
         self._users[key] = AdminUser(
             nick=nick, hostmask_pattern=hostmask_pattern, role=Role.MANAGER,
-            password_hash=hash_password(password) if password else "",
+            **({} if not password else
+               dict(zip(("password_hash","password_salt"), hash_password(password)))),
             added_by=added_by
         )
         logger.info(f"Manager added: {nick} ({hostmask_pattern}) by {added_by}")
@@ -183,6 +186,24 @@ class AdminManager:
             if self._match_hostmask(user.hostmask_pattern, hostmask_pattern):
                 user.is_blocked = False
         logger.info(f"Unblocked: {hostmask_pattern}")
+        return True
+
+    def change_password(self, target_nick: str, new_password: str,
+                        old_password: str = "", by_admin: bool = False) -> bool:
+        """Change password. by_admin=True skips old_password check.
+        Use target_nick="__super__" to change the super admin password.
+        Returns True on success."""
+        key = "__super_admin__" if target_nick == "__super__" else f"manager_{target_nick.lower()}"
+        user = self._users.get(key)
+        if not user:
+            return False
+        if not by_admin:
+            if not user.password_hash:
+                return False
+            if not verify_password(old_password, user.password_hash, user.password_salt):
+                return False
+        user.password_hash, user.password_salt = hash_password(new_password)
+        logger.info(f"Password changed for {target_nick}")
         return True
 
     def list_blocked(self) -> List[str]:

@@ -67,12 +67,19 @@ class IRCMessage:
 class IRCBot:
     """Async IRC bot with Undernet support."""
 
-    def __init__(self, server="us.undernet.org", port=6667, nickname="GrocBot",
+    def __init__(self, server="budapest.hu.eu.undernet.org", port=6667, nickname="GrocBot",
                  username="grocbot", realname="Grok IRC Bot", channels=None,
                  password="", use_ssl=False, encoding="utf-8",
                  reconnect_delay=30, max_reconnect=10, message_delay=0.5,
-                 undernet_user="", undernet_pass=""):
-        self.server = server
+                 undernet_user="", undernet_pass="",
+                 servers=None):
+        # servers list for fallback cycling
+        if servers:
+            self.servers = list(servers)
+        else:
+            self.servers = [server]
+        self.server = self.servers[0]
+        self._server_index = 0
         self.port = port
         self.nickname = nickname
         self.username = username
@@ -142,6 +149,7 @@ class IRCBot:
     async def join_channel(self, channel: str, key: str = ""):
         cmd = f"JOIN {channel} {key}".strip() if key else f"JOIN {channel}"
         await self.send_raw(cmd)
+        logger.info(f"Joining {channel}")
         if channel not in self.channels:
             self.channels.append(channel)
 
@@ -226,6 +234,13 @@ class IRCBot:
                 self._connected = False
                 break
 
+    def _next_server(self):
+        """Cycle to the next server in the list."""
+        if len(self.servers) > 1:
+            self._server_index = (self._server_index + 1) % len(self.servers)
+            self.server = self.servers[self._server_index]
+            logger.info(f"Switching to server: {self.server}")
+
     async def run(self):
         self._running = True
         while self._running:
@@ -239,6 +254,7 @@ class IRCBot:
                 if self._reconnect_count > self.max_reconnect:
                     logger.error("Max reconnects reached")
                     break
+                self._next_server()
                 wait = min(self.reconnect_delay * self._reconnect_count, 300)
-                logger.info(f"Reconnecting in {wait}s (attempt {self._reconnect_count})...")
+                logger.info(f"Reconnecting to {self.server} in {wait}s (attempt {self._reconnect_count})...")
                 await asyncio.sleep(wait)

@@ -1,111 +1,116 @@
 {
-    "irc": {
-        "network": "us.undernet.org",
-        "port": 6667,
-        "ssl_port": 6697,
-        "use_ssl": false,
-        "nickname": "GrocBot",
-        "alt_nickname": "GrocBot_",
-        "username": "grocbot",
-        "realname": "Groc IRC Bot - Grok AI Assistant",
-        "channels": [
-            "#groc-test"
-        ],
-        "command_prefix": "!grok",
-        "reconnect_delay": 30,
-        "max_reconnect_attempts": 10,
-        "ping_interval": 120,
-        "message_throttle_seconds": 2,
-        "max_message_length": 400,
-        "undernet_login": {
-            "enabled": false,
-            "username": "",
-            "password": ""
-        }
+  "irc": {
+    "network": "us.undernet.org",
+    "port": 6667,
+    "ssl_port": 6697,
+    "use_ssl": false,
+    "nickname": "GrocBot",
+    "alt_nickname": "GrocBot_",
+    "username": "grocbot",
+    "realname": "Groc IRC Bot - Grok AI Assistant",
+    "channels": [
+      "#grocbot"
+    ],
+    "command_prefix": "!grok",
+    "reconnect_delay": 30,
+    "max_reconnect_attempts": 10,
+    "ping_interval": 120,
+    "message_throttle_seconds": 2,
+    "max_message_length": 400,
+    "undernet_login": {
+      "enabled": false,
+      "username": "",
+      "password": ""
     },
-    "grok_api": {
-        "base_url": "https://api.x.ai/v1",
-        "model": "grok-3",
-        "max_tokens": 1024,
+    "server": "budapest.hu.eu.undernet.org",
+    "servers": [
+      "budapest.hu.eu.undernet.org",
+      "bucharest.ro.eu.undernet.org"
+    ]
+  },
+  "grok_api": {
+    "base_url": "https://api.x.ai/v1",
+    "model": "grok-3",
+    "max_tokens": 1024,
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "stream": false,
+    "timeout": 30,
+    "rate_limit": {
+      "requests_per_minute": 30,
+      "tokens_per_minute": 50000
+    },
+    "default_system_prompt": "You are a helpful IRC assistant named GrocBot. Keep responses concise and suitable for IRC (under 400 characters per message).",
+    "custom_headers": {},
+    "custom_modes": {
+      "default": {
+        "system_prompt": "You are a helpful IRC assistant. Keep responses concise.",
         "temperature": 0.7,
-        "top_p": 1.0,
-        "stream": false,
-        "timeout": 30,
-        "rate_limit": {
-            "requests_per_minute": 30,
-            "tokens_per_minute": 50000
-        },
-        "default_system_prompt": "You are a helpful IRC assistant named GrocBot. Keep responses concise and suitable for IRC (under 400 characters per message).",
-        "custom_headers": {},
-        "custom_modes": {
-            "default": {
-                "system_prompt": "You are a helpful IRC assistant. Keep responses concise.",
-                "temperature": 0.7,
-                "max_tokens": 1024
-            },
-            "creative": {
-                "system_prompt": "You are a creative and imaginative assistant. Be expressive but concise for IRC.",
-                "temperature": 1.2,
-                "max_tokens": 1024
-            },
-            "precise": {
-                "system_prompt": "You are a precise, factual assistant. Give exact answers, no fluff.",
-                "temperature": 0.2,
-                "max_tokens": 512
-            },
-            "code": {
-                "system_prompt": "You are a programming assistant. Provide code snippets and technical help. Keep it brief for IRC.",
-                "temperature": 0.3,
-                "max_tokens": 1500
-            }
-        }
-    },
-    "security": {
-        "api_key_env_var": "GROK_API_KEY",
-        "encrypt_config": true,
-        "allowed_hosts": [
-            "*.undernet.org"
-        ],
-        "rate_limit_per_user": 10,
-        "rate_limit_window_seconds": 60,
-        "blocked_users": [],
-        "require_registered_nick": false,
-        "log_conversations": true,
-        "max_context_messages": 10,
-        "sanitize_input": true,
-        "max_input_length": 500
-    },
-    "admin": {
-        "super_admins": [],
-        "managers": [],
-        "admin_password_hash": "",
-        "require_hostmask_auth": true,
-        "admin_commands": [
-            "!admin addmanager",
-            "!admin removemanager",
-            "!admin setmode",
-            "!admin setheader",
-            "!admin setcontext",
-            "!admin block",
-            "!admin unblock",
-            "!admin join",
-            "!admin part",
-            "!admin reload",
-            "!admin status",
-            "!admin shutdown"
-        ],
-        "manager_commands": [
-            "!admin setmode",
-            "!admin block",
-            "!admin unblock",
-            "!admin status"
-        ]
-    },
-    "logging": {
-        "level": "INFO",
-        "file": "logs/grocbot.log",
-        "max_size_mb": 10,
-        "backup_count": 5,
-        "log_to_console": true
+        "max_tokens": 1024
+      },
+      "creative": {
+        "system_prompt": "You are a creative and imaginative assistant. Be expressive but concise for IRC.",
+        "temperature": 1.2,
+        "max_tokens": 1024
+      },
+      "precise": {
+        "system_prompt": "You are a precise, factual assistant. Give exact answers, no fluff.",
+        "temperature": 0.2,
+        "max_tokens": 512
+      },
+      "code": {
+        "system_prompt": "You are a programming assistant. Provide code snippets and technical help. Keep it brief for IRC.",
+        "temperature": 0.3,
+        "max_tokens": 1500
+      }
     }
+  },
+  "security": {
+    "api_key_env_var": "GROK_API_KEY",
+    "encrypt_config": true,
+    "allowed_hosts": [
+      "*.undernet.org"
+    ],
+    "rate_limit_per_user": 10,
+    "rate_limit_window_seconds": 60,
+    "blocked_users": [],
+    "require_registered_nick": false,
+    "log_conversations": true,
+    "max_context_messages": 10,
+    "sanitize_input": true,
+    "max_input_length": 500
+  },
+  "admin": {
+    "super_admins": [],
+    "managers": [],
+    "admin_password_hash": "",
+    "require_hostmask_auth": true,
+    "admin_commands": [
+      "!admin addmanager",
+      "!admin removemanager",
+      "!admin setmode",
+      "!admin setheader",
+      "!admin setcontext",
+      "!admin block",
+      "!admin unblock",
+      "!admin join",
+      "!admin part",
+      "!admin reload",
+      "!admin status",
+      "!admin shutdown"
+    ],
+    "manager_commands": [
+      "!admin setmode",
+      "!admin block",
+      "!admin unblock",
+      "!admin status"
+    ]
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/grocbot.log",
+    "max_size_mb": 10,
+    "backup_count": 5,
+    "log_to_console": true
+  }
 }

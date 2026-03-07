@@ -34,8 +34,13 @@ class GrocIRCBot:
             logger.error("GROK_API_KEY not set!")
             sys.exit(1)
 
+        irc_servers = irc_cfg.get("servers", [
+            os.getenv("IRC_SERVER", "budapest.hu.eu.undernet.org"),
+            "bucharest.ro.eu.undernet.org",
+        ])
         self.bot = IRCBot(
-            server=os.getenv("IRC_SERVER", irc_cfg.get("server", "us.undernet.org")),
+            server=irc_servers[0],
+            servers=irc_servers,
             port=int(os.getenv("IRC_PORT", irc_cfg.get("port", 6667))),
             nickname=os.getenv("IRC_NICKNAME", irc_cfg.get("nickname", "GrocBot")),
             username=irc_cfg.get("username", "grocbot"),
@@ -91,10 +96,17 @@ class GrocIRCBot:
         text = msg.text.strip()
         hostmask = msg.hostmask
 
+        # dynamic command: !<currentNick> (case-insensitive)
+        bot_nick = self.bot._current_nick.lower()
+        nick_cmd = f"!{bot_nick}"
+
         if text.startswith("!admin "):
             await self._handle_admin_command(msg, text[7:])
-        elif text.startswith("!grok "):
-            await self._handle_grok(msg, text[6:])
+        elif text.lower().startswith(nick_cmd + " "):
+            await self._handle_grok(msg, text[len(nick_cmd)+1:])
+        elif text.lower() == nick_cmd:
+            await self.bot.send_message(msg.channel,
+                f"{msg.nick}: Usage: !{self.bot._current_nick} <question>")
         elif text == "!help":
             await self._handle_help(msg)
         elif text == "!status":
@@ -109,7 +121,7 @@ class GrocIRCBot:
         hostmask = msg.hostmask
         if self.admin.check_blocked(hostmask):
             return
-        if not self.rate_limiter.check(hostmask):
+        if not self.rate_limiter.is_allowed(hostmask):
             await self.bot.send_message(msg.channel, f"{msg.nick}: Rate limit exceeded. Please wait.")
             return
         clean = self.sanitizer.sanitize(question)
@@ -257,6 +269,27 @@ class GrocIRCBot:
             self.admin.unblock_user(parts[1])
             await self.bot.send_message(msg.channel, f"{msg.nick}: Unblocked {parts[1]}")
 
+        elif action == "chpasswd":
+            is_sa = self.admin.check_permission(hostmask, Role.SUPER_ADMIN)
+            if is_sa and len(parts) == 3:
+                # super admin resetting a user's password
+                target, newpw = parts[1], parts[2]
+                if self.admin.change_password(target, newpw, by_admin=True):
+                    await self.bot.send_message(msg.channel, f"{msg.nick}: Password updated for {target}.")
+                else:
+                    await self.bot.send_message(msg.channel, f"{msg.nick}: User not found (use nick or __super__).")
+            elif len(parts) == 3:
+                # any authed user changing their own password
+                oldpw, newpw = parts[1], parts[2]
+                if self.admin.change_password(msg.nick, newpw, old_password=oldpw):
+                    await self.bot.send_message(msg.channel, f"{msg.nick}: Password changed.")
+                else:
+                    await self.bot.send_message(msg.channel, f"{msg.nick}: Failed - wrong current password.")
+            else:
+                await self.bot.send_message(msg.channel,
+                    f"{msg.nick}: Usage: !admin chpasswd <oldpass> <newpass>  "
+                    f"| (super admin) !admin chpasswd <nick|__super__> <newpass>")
+
         elif action == "shutdown":
             if not self.admin.check_permission(hostmask, Role.SUPER_ADMIN):
                 await self.bot.send_message(msg.channel, f"{msg.nick}: Only super admin can shutdown.")
@@ -268,7 +301,8 @@ class GrocIRCBot:
             await self.bot.send_message(msg.channel,
                 f"{msg.nick}: Unknown admin command. Use: login, addmanager, removemanager, "
                 f"listmanagers, setheader, removeheader, listheaders, setcontext, clearcontext, "
-                f"setmode, setmodel, settemp, setmaxtokens, clearhistory, join, part, block, unblock, shutdown")
+                f"setmode, setmodel, settemp, setmaxtokens, clearhistory, join, part, block, unblock, "
+                f"chpasswd, shutdown")
 
     async def _handle_help(self, msg: IRCMessage):
         help_lines = [
