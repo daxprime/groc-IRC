@@ -199,8 +199,10 @@ class IRCBot:
             if self.undernet_user and self.undernet_pass:
                 await self.send_raw(
                     f"PRIVMSG X@channels.undernet.org :LOGIN {self.undernet_user} {self.undernet_pass}")
-                logger.info("Sent Undernet X login")
+                logger.info("Sent CService X login")
                 await asyncio.sleep(2)
+                await self.send_raw(f"MODE {self._current_nick} +x")
+                logger.info(f"Sent MODE {self._current_nick} +x (host cloaking)")
             for channel in self.channels:
                 await self.join_channel(channel)
         elif msg.command == "433":

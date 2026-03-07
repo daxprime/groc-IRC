@@ -50,8 +50,8 @@ class GrocIRCBot:
             reconnect_delay=irc_cfg.get("reconnect_delay", 30),
             max_reconnect=irc_cfg.get("max_reconnect", 10),
             message_delay=irc_cfg.get("message_delay", 0.5),
-            undernet_user=os.getenv("UNDERNET_USER", ""),
-            undernet_pass=os.getenv("UNDERNET_PASS", ""),
+            undernet_user=os.getenv("CSERVICEUSER", ""),
+            undernet_pass=os.getenv("CSERVICEPASSWORD", ""),
         )
 
         self.grok = GrokAPIClient(
