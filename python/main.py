@@ -94,9 +94,10 @@ class GrocIRCBot:
         self.bot.on("PRIVMSG", self._handle_message)
 
     async def _handle_message(self, msg: IRCMessage):
-        if not msg.text or not msg.channel:
+        if not msg.text:
             return
         text = msg.text.strip()
+        reply_to = msg.channel if msg.channel else msg.nick
         hostmask = msg.hostmask
 
         # dynamic command: !<currentNick> (case-insensitive)
@@ -104,21 +105,24 @@ class GrocIRCBot:
         nick_cmd = f"!{bot_nick}"
 
         if text.startswith("!admin "):
-            await self._handle_admin_command(msg, text[7:])
+            await self._handle_admin_command(msg, text[7:], reply_to)
         elif text.lower().startswith(nick_cmd + " "):
-            await self._handle_grok(msg, text[len(nick_cmd)+1:])
+            await self._handle_grok(msg, text[len(nick_cmd)+1:], reply_to)
         elif text.lower() == nick_cmd:
-            await self.bot.send_message(msg.channel,
+            await self.bot.send_message(reply_to,
                 f"{msg.nick}: Usage: !{self.bot._current_nick} <question>")
         elif text == "!help":
-            await self._handle_help(msg)
+            await self._handle_help(msg, reply_to)
         elif text == "!status":
-            await self._handle_status(msg)
+            await self._handle_status(msg, reply_to)
         elif text == "!modes":
             modes = self.grok.list_modes()
-            current = self.grok.get_channel_mode(msg.channel)
-            await self.bot.send_message(msg.channel,
+            current = self.grok.get_channel_mode(reply_to)
+            await self.bot.send_message(reply_to,
                 f"Available modes: {', '.join(modes) if modes else 'none'} | Current: {current}")
+        elif not msg.channel:
+            # In a PM, treat any plain text as a question to Grok
+            await self._handle_grok(msg, text, reply_to)
 
     @staticmethod
     def _trim_to_sentences(text: str, max_sentences: int = 2) -> str:
@@ -133,29 +137,30 @@ class GrocIRCBot:
             trimmed += "."
         return trimmed[:450]  # hard cap for IRC safety
 
-    async def _handle_grok(self, msg: IRCMessage, question: str):
+    async def _handle_grok(self, msg: IRCMessage, question: str, reply_to: str):
         hostmask = msg.hostmask
         if self.admin.check_blocked(hostmask):
             return
         if not self.rate_limiter.is_allowed(hostmask):
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Rate limit exceeded. Please wait.")
+            await self.bot.send_message(reply_to, f"{msg.nick}: Rate limit exceeded. Please wait.")
             return
         clean = self.sanitizer.sanitize(question)
         if not clean:
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Invalid or empty message.")
+            await self.bot.send_message(reply_to, f"{msg.nick}: Invalid or empty message.")
             return
+        context_key = msg.channel or msg.nick
         try:
-            response = await self.grok.chat(msg.channel, msg.nick, clean)
+            response = await self.grok.chat(context_key, msg.nick, clean)
             answer = self._trim_to_sentences(response.content, max_sentences=2)
-            await self.bot.send_message(msg.channel, f"{msg.nick}: {answer}")
+            await self.bot.send_message(reply_to, f"{msg.nick}: {answer}")
         except APIError as e:
             logger.error(f"Grok API error: {e}")
-            await self.bot.send_message(msg.channel, f"{msg.nick}: API error - {e}")
+            await self.bot.send_message(reply_to, f"{msg.nick}: API error - {e}")
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
-            await self.bot.send_message(msg.channel, f"{msg.nick}: An error occurred.")
+            await self.bot.send_message(reply_to, f"{msg.nick}: An error occurred.")
 
-    async def _handle_admin_command(self, msg: IRCMessage, cmd: str):
+    async def _handle_admin_command(self, msg: IRCMessage, cmd: str, reply_to: str):
         hostmask = msg.hostmask
         parts = cmd.strip().split()
         if not parts:
@@ -166,116 +171,119 @@ class GrocIRCBot:
             password = parts[1] if len(parts) > 1 else ""
             session = self.admin.authenticate(msg.nick, hostmask, password)
             if session:
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Authenticated as {session.role.name}")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Authenticated as {session.role.name}")
             else:
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Authentication failed.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Authentication failed.")
             return
 
         if not self.admin.check_permission(hostmask, Role.MANAGER):
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Permission denied.")
+            await self.bot.send_message(reply_to, f"{msg.nick}: Permission denied.")
             return
 
         if action == "addmanager" and len(parts) >= 3:
             if not self.admin.check_permission(hostmask, Role.SUPER_ADMIN):
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Only super admin can add managers.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Only super admin can add managers.")
                 return
             nick_to_add = parts[1]
             mask = parts[2]
             pw = parts[3] if len(parts) > 3 else ""
             if self.admin.add_manager(nick_to_add, mask, msg.nick, pw):
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Manager {nick_to_add} added.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Manager {nick_to_add} added.")
             else:
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Manager already exists.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Manager already exists.")
 
         elif action == "removemanager" and len(parts) >= 2:
             if not self.admin.check_permission(hostmask, Role.SUPER_ADMIN):
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Only super admin can remove managers.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Only super admin can remove managers.")
                 return
             if self.admin.remove_manager(parts[1]):
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Manager {parts[1]} removed.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Manager {parts[1]} removed.")
             else:
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Manager not found.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Manager not found.")
 
         elif action == "listmanagers":
             managers = self.admin.list_managers()
             if managers:
                 for m in managers:
-                    await self.bot.send_message(msg.channel,
+                    await self.bot.send_message(reply_to,
                         f"  {m['nick']} [{m['role']}] mask={m['hostmask']} by={m['added_by']}")
             else:
-                await self.bot.send_message(msg.channel, f"{msg.nick}: No managers.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: No managers.")
 
         elif action == "setheader" and len(parts) >= 3:
             self.grok.set_header(parts[1], ' '.join(parts[2:]))
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Header {parts[1]} set.")
+            await self.bot.send_message(reply_to, f"{msg.nick}: Header {parts[1]} set.")
 
         elif action == "removeheader" and len(parts) >= 2:
             if self.grok.remove_header(parts[1]):
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Header {parts[1]} removed.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Header {parts[1]} removed.")
 
         elif action == "listheaders":
             headers = self.grok.list_headers()
-            await self.bot.send_message(msg.channel, f"Headers: {headers}")
+            await self.bot.send_message(reply_to, f"Headers: {headers}")
 
         elif action == "setcontext" and len(parts) >= 2:
             context = ' '.join(parts[1:])
-            self.grok.set_channel_context(msg.channel, context)
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Channel context updated.")
+            context_key = msg.channel or msg.nick
+            self.grok.set_channel_context(context_key, context)
+            await self.bot.send_message(reply_to, f"{msg.nick}: Channel context updated.")
 
         elif action == "clearcontext":
-            self.grok.clear_channel_context(msg.channel)
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Channel context cleared.")
+            context_key = msg.channel or msg.nick
+            self.grok.clear_channel_context(context_key)
+            await self.bot.send_message(reply_to, f"{msg.nick}: Channel context cleared.")
 
         elif action == "setmode" and len(parts) >= 2:
-            if self.grok.set_channel_mode(msg.channel, parts[1]):
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Mode set to {parts[1]}")
+            context_key = msg.channel or msg.nick
+            if self.grok.set_channel_mode(context_key, parts[1]):
+                await self.bot.send_message(reply_to, f"{msg.nick}: Mode set to {parts[1]}")
             else:
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Unknown mode. Available: {', '.join(self.grok.list_modes())}")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Unknown mode. Available: {', '.join(self.grok.list_modes())}")
 
         elif action == "setmodel" and len(parts) >= 2:
             self.grok.set_model(parts[1])
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Model changed to {parts[1]}")
+            await self.bot.send_message(reply_to, f"{msg.nick}: Model changed to {parts[1]}")
 
         elif action == "settemp" and len(parts) >= 2:
             try:
                 self.grok.set_temperature(float(parts[1]))
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Temperature set to {parts[1]}")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Temperature set to {parts[1]}")
             except ValueError:
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Invalid temperature value.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Invalid temperature value.")
 
         elif action == "setmaxtokens" and len(parts) >= 2:
             try:
                 self.grok.set_max_tokens(int(parts[1]))
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Max tokens set to {parts[1]}")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Max tokens set to {parts[1]}")
             except ValueError:
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Invalid token count.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Invalid token count.")
 
         elif action == "clearhistory":
-            channel = parts[1] if len(parts) > 1 else msg.channel
+            channel = parts[1] if len(parts) > 1 else (msg.channel or msg.nick)
             self.grok.clear_history(channel)
-            await self.bot.send_message(msg.channel, f"{msg.nick}: History cleared for {channel}")
+            await self.bot.send_message(reply_to, f"{msg.nick}: History cleared for {channel}")
 
         elif action == "join" and len(parts) >= 2:
             await self.bot.join_channel(parts[1])
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Joined {parts[1]}")
+            await self.bot.send_message(reply_to, f"{msg.nick}: Joined {parts[1]}")
 
         elif action == "part" and len(parts) >= 2:
             await self.bot.part_channel(parts[1], "Requested by admin")
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Left {parts[1]}")
+            await self.bot.send_message(reply_to, f"{msg.nick}: Left {parts[1]}")
 
         elif action == "block" and len(parts) >= 2:
             if not self.admin.check_permission(hostmask, Role.SUPER_ADMIN):
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Only super admin can block.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Only super admin can block.")
                 return
             self.admin.block_user(parts[1])
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Blocked {parts[1]}")
+            await self.bot.send_message(reply_to, f"{msg.nick}: Blocked {parts[1]}")
 
         elif action == "unblock" and len(parts) >= 2:
             if not self.admin.check_permission(hostmask, Role.SUPER_ADMIN):
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Only super admin can unblock.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Only super admin can unblock.")
                 return
             self.admin.unblock_user(parts[1])
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Unblocked {parts[1]}")
+            await self.bot.send_message(reply_to, f"{msg.nick}: Unblocked {parts[1]}")
 
         elif action == "chpasswd":
             is_sa = self.admin.check_permission(hostmask, Role.SUPER_ADMIN)
@@ -283,36 +291,36 @@ class GrocIRCBot:
                 # super admin resetting a user's password
                 target, newpw = parts[1], parts[2]
                 if self.admin.change_password(target, newpw, by_admin=True):
-                    await self.bot.send_message(msg.channel, f"{msg.nick}: Password updated for {target}.")
+                    await self.bot.send_message(reply_to, f"{msg.nick}: Password updated for {target}.")
                 else:
-                    await self.bot.send_message(msg.channel, f"{msg.nick}: User not found (use nick or __super__).")
+                    await self.bot.send_message(reply_to, f"{msg.nick}: User not found (use nick or __super__).")
             elif len(parts) == 3:
                 # any authed user changing their own password
                 oldpw, newpw = parts[1], parts[2]
                 if self.admin.change_password(msg.nick, newpw, old_password=oldpw):
-                    await self.bot.send_message(msg.channel, f"{msg.nick}: Password changed.")
+                    await self.bot.send_message(reply_to, f"{msg.nick}: Password changed.")
                 else:
-                    await self.bot.send_message(msg.channel, f"{msg.nick}: Failed - wrong current password.")
+                    await self.bot.send_message(reply_to, f"{msg.nick}: Failed - wrong current password.")
             else:
-                await self.bot.send_message(msg.channel,
+                await self.bot.send_message(reply_to,
                     f"{msg.nick}: Usage: !admin chpasswd <oldpass> <newpass>  "
                     f"| (super admin) !admin chpasswd <nick|__super__> <newpass>")
 
         elif action == "shutdown":
             if not self.admin.check_permission(hostmask, Role.SUPER_ADMIN):
-                await self.bot.send_message(msg.channel, f"{msg.nick}: Only super admin can shutdown.")
+                await self.bot.send_message(reply_to, f"{msg.nick}: Only super admin can shutdown.")
                 return
-            await self.bot.send_message(msg.channel, "Shutting down...")
+            await self.bot.send_message(reply_to, "Shutting down...")
             await self.bot.quit("Shutdown by admin")
 
         else:
-            await self.bot.send_message(msg.channel,
+            await self.bot.send_message(reply_to,
                 f"{msg.nick}: Unknown admin command. Use: login, addmanager, removemanager, "
                 f"listmanagers, setheader, removeheader, listheaders, setcontext, clearcontext, "
                 f"setmode, setmodel, settemp, setmaxtokens, clearhistory, join, part, block, unblock, "
                 f"chpasswd, shutdown")
 
-    async def _handle_help(self, msg: IRCMessage):
+    async def _handle_help(self, msg: IRCMessage, reply_to: str):
         help_lines = [
             "groc-IRC Bot Commands:",
             "  !grok <question> - Ask Grok AI a question",
@@ -323,12 +331,13 @@ class GrocIRCBot:
             "  !admin <command> - Admin commands (use !admin help for list)",
         ]
         for line in help_lines:
-            await self.bot.send_message(msg.channel, line)
+            await self.bot.send_message(reply_to, line)
 
-    async def _handle_status(self, msg: IRCMessage):
-        mode = self.grok.get_channel_mode(msg.channel)
-        history = self.grok.get_history_length(msg.channel)
-        await self.bot.send_message(msg.channel,
+    async def _handle_status(self, msg: IRCMessage, reply_to: str):
+        context_key = msg.channel or msg.nick
+        mode = self.grok.get_channel_mode(context_key)
+        history = self.grok.get_history_length(context_key)
+        await self.bot.send_message(reply_to,
             f"Model: {self.grok.model} | Mode: {mode} | "
             f"Temp: {self.grok.temperature} | MaxTokens: {self.grok.max_tokens} | "
             f"History: {history} msgs")
