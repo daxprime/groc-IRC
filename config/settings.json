@@ -40,7 +40,7 @@
       "requests_per_minute": 30,
       "tokens_per_minute": 50000
     },
-    "default_system_prompt": "You are a helpful IRC assistant named GrocBot. Keep responses concise and suitable for IRC (under 400 characters per message).",
+    "default_system_prompt": "You are a helpful IRC assistant named GrocBot. Keep responses concise and suitable for IRC (under 400 characters per message). Reply in at most 2 sentences.",
     "custom_headers": {},
     "custom_modes": {
       "default": {

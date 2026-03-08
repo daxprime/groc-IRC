@@ -3,6 +3,7 @@
 import os
 import sys
 import asyncio
+import re
 import logging
 import signal
 from dotenv import load_dotenv
@@ -119,6 +120,19 @@ class GrocIRCBot:
             await self.bot.send_message(msg.channel,
                 f"Available modes: {', '.join(modes) if modes else 'none'} | Current: {current}")
 
+    @staticmethod
+    def _trim_to_sentences(text: str, max_sentences: int = 2) -> str:
+        """Return at most max_sentences sentences from text, on one line."""
+        # collapse whitespace and join lines
+        text = " ".join(text.split())
+        # split on sentence-ending punctuation followed by space or end
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        trimmed = " ".join(sentences[:max_sentences])
+        # ensure it ends with punctuation
+        if trimmed and trimmed[-1] not in ".!?":
+            trimmed += "."
+        return trimmed[:450]  # hard cap for IRC safety
+
     async def _handle_grok(self, msg: IRCMessage, question: str):
         hostmask = msg.hostmask
         if self.admin.check_blocked(hostmask):
@@ -131,17 +145,9 @@ class GrocIRCBot:
             await self.bot.send_message(msg.channel, f"{msg.nick}: Invalid or empty message.")
             return
         try:
-            await self.bot.send_message(msg.channel, f"{msg.nick}: Thinking...")
             response = await self.grok.chat(msg.channel, msg.nick, clean)
-            answer = response.content.replace("\n", " | ")
-            if len(answer) > 450:
-                chunks = [answer[i:i+450] for i in range(0, len(answer), 450)]
-                for chunk in chunks[:3]:
-                    await self.bot.send_message(msg.channel, f"{msg.nick}: {chunk}")
-                if len(chunks) > 3:
-                    await self.bot.send_message(msg.channel, f"{msg.nick}: [truncated, {len(chunks)-3} more parts]")
-            else:
-                await self.bot.send_message(msg.channel, f"{msg.nick}: {answer}")
+            answer = self._trim_to_sentences(response.content, max_sentences=2)
+            await self.bot.send_message(msg.channel, f"{msg.nick}: {answer}")
         except APIError as e:
             logger.error(f"Grok API error: {e}")
             await self.bot.send_message(msg.channel, f"{msg.nick}: API error - {e}")
