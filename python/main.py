@@ -84,7 +84,9 @@ class GrocIRCBot:
             max_length=sec_cfg.get("max_message_length", 500)
         )
 
-        self.bridge = BridgeServer(self.grok, port=5580)
+        self.bridge = BridgeServer(self.grok,
+                                      host=os.getenv("BRIDGE_HOST", "127.0.0.1"),
+                                      port=int(os.getenv("BRIDGE_PORT", "5580")))
         self._register_handlers()
 
     def _register_handlers(self):

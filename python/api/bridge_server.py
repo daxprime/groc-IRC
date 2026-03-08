@@ -25,6 +25,9 @@ class BridgeServer:
         self._app.router.add_get("/api/status", self._handle_status)
 
     async def _check_localhost(self, request):
+        # Skip restriction when bridge is bound to all interfaces (Docker/remote mode)
+        if self.host == "0.0.0.0":
+            return
         peername = request.transport.get_extra_info("peername")
         if peername and peername[0] not in ("127.0.0.1", "::1", "localhost"):
             raise web.HTTPForbidden(text="Bridge only accepts localhost connections")
