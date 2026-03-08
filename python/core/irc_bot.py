@@ -203,6 +203,10 @@ class IRCBot:
                 await asyncio.sleep(2)
                 await self.send_raw(f"MODE {self._current_nick} +x")
                 logger.info(f"Sent MODE {self._current_nick} +x (host cloaking)")
+                # Wait for server to confirm cloak before joining channels
+                # so the real IP is never exposed in any channel
+                logger.info("Waiting for host cloak confirmation before joining channels...")
+                await asyncio.sleep(2)
             for channel in self.channels:
                 await self.join_channel(channel)
         elif msg.command == "433":

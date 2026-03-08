@@ -528,3 +528,145 @@ MIT License — see [LICENSE](LICENSE)
 ## Author
 
 **daxprime / iamre00t00** — [iamre00t00@gmail.com](mailto:iamre00t00@gmail.com)
+
+---
+
+## Docker Deployment
+
+> **Note — `sudo` requirement:** Docker commands require `sudo` until you log out and back in
+> after installation (the `docker` group is only applied at next login).
+> Alternatively, run `newgrp docker` once in your current terminal to activate it immediately.
+
+### Essential Commands
+
+```bash
+# Start the bot (detached)
+sudo docker compose up -d
+
+# Follow live logs
+sudo docker compose logs -f grocbot
+
+# Stop the bot
+sudo docker compose down
+```
+
+### Quick Start
+
+```bash
+# 1. Clone the repo (or use the already-cloned dockerized branch)
+git clone -b dockerized https://github.com/daxprime/groc-IRC.git groc-irc-docker
+cd groc-irc-docker
+
+# 2. Create your .env file from the template
+cp .env.example .env
+# Edit .env and fill in:
+#   GROK_API_KEY       — your xAI API key
+#   IRC_NICKNAME       — bot nick (default: GrocBot)
+#   IRC_CHANNELS       — comma-separated, e.g. #grocbot
+#   SUPER_ADMIN_PASSWORD — admin console password
+
+# 3. Build and start
+sudo docker compose up -d
+```
+
+### Container Overview
+
+| Component | Detail |
+|-----------|--------|
+| Base image | `python:3.12-slim` |
+| Build stage | `python:3.12-slim` + nasm + gcc (compiles Assembly module) |
+| Runtime stage | Slim image, no build tools, non-root user (`grocbot`, uid 1001) |
+| Exposed port | `5580` (HTTP bridge API, bound to `127.0.0.1` only) |
+| Volumes | `./config:/app/config` (persist settings), `./logs:/app/logs` |
+
+### Environment Variables
+
+All variables from `.env.example` are available inside the container. Key ones:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GROK_API_KEY` | xAI API key (**required**) | — |
+| `IRC_SERVER` | Primary IRC server | `budapest.hu.eu.undernet.org` |
+| `IRC_NICKNAME` | Bot nick | `GrocBot` |
+| `IRC_CHANNELS` | Channel(s) to join | `#grocbot` |
+| `GROK_MODEL` | Grok model name | `grok-3` |
+| `BRIDGE_HOST` | Bridge server bind address | `0.0.0.0` |
+| `BRIDGE_PORT` | Bridge server port | `5580` |
+| `SUPER_ADMIN_PASSWORD` | `!admin` password | — |
+
+### Makefile Commands
+
+> If `docker` group is not yet active in your session, prefix with `sudo`: `sudo make up`
+
+```bash
+make build     # Build Docker image
+make up        # Build + start in background
+make run       # Start with live logs
+make down      # Stop and remove containers
+make logs      # Follow container logs
+make restart   # Restart the bot
+make shell     # Get a shell inside the container
+make status    # Query bridge API health endpoint
+make clean     # Remove containers, images, and volumes
+```
+
+### Manual docker compose Commands
+
+```bash
+sudo docker compose up -d                   # Start detached
+sudo docker compose logs -f grocbot         # Follow logs
+sudo docker compose restart grocbot         # Restart after config change
+sudo docker compose down                    # Stop
+sudo docker compose down --rmi all          # Stop + remove image
+```
+
+### Volumes and Persistence
+
+The bot stores runtime state in `./config/settings.json`. Mount it as a volume so changes survive container restarts:
+
+```yaml
+volumes:
+  - ./config:/app/config
+```
+
+Logs are written to `./logs/` and rotated by Docker's json-file driver (10 MB × 5 files by default).
+
+### HTTP Bridge API (port 5580)
+
+The bridge allows Tcl scripts or external tools to interact with the bot. By default it is only accessible from localhost (`127.0.0.1:5580`). To expose it on your network, edit `docker-compose.yml`:
+
+```yaml
+ports:
+  - "5580:5580"   # expose to all interfaces (trusted networks only)
+```
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/status` | GET | Bot status (nick, server, channel, mode) |
+| `/api/chat` | POST | Send a message, get Grok response |
+| `/api/mode` | POST | Change response mode |
+| `/api/header` | POST | Change system prompt header |
+
+### Healthcheck
+
+Docker automatically polls `/api/status` every 60 seconds. If the bridge is down the container is marked `unhealthy`. Check with:
+
+```bash
+docker inspect --format='{{.State.Health.Status}}' groc-irc-bot
+```
+
+### Multi-architecture Build (optional)
+
+```bash
+docker buildx create --use
+docker buildx build --platform linux/amd64,linux/arm64 -t yourname/groc-irc:latest --push .
+```
+
+### Upgrading
+
+```bash
+git pull origin dockerized
+sudo docker compose down
+sudo docker compose build --no-cache
+sudo docker compose up -d
+```
